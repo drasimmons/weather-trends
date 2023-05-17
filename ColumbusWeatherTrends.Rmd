@@ -1,0 +1,170 @@
+---
+output:
+  pdf_document:
+    toc: no
+    toc_depth: '2'
+  params:
+    species: yes
+  html_document:
+    theme: flatly
+    toc: no
+    toc_depth: 2
+    toc_float: no
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE,
+                      message = FALSE,
+                      echo = FALSE,
+                      include = FALSE)
+
+library(ggplot2)
+
+# Get current working directory, store, and set new directory 
+oldwd <- getwd() 
+setwd('F:/Professional Work/Udacity/Nanodegree_Data_Analyst/Project1_ColumbusWeatherTrends/')
+
+# Run data wrangling script to load in prepped data
+source('weather_trend_data_wrangling.R')
+
+```
+Photo by [Oz Seyrek](https://unsplash.com/ja/@ozseyrek?utm_source=unsplash&utm_medium=referral&utm_content=creditCopyText) on [Unsplash](https://unsplash.com/s/photos/columbus?utm_source=unsplash&utm_medium=referral&utm_content=creditCopyText)
+  
+## Purpose Statement
+
+In this project, I will analyze local and global temperature data and compare the temperature trends my local city (Columbus, OH) to the overall global temperature trends. I will seek to answer the following questions: 
+
+  - How does the temperature in Columbus compare to the global average, and has this trend been consistent over time?  
+  - How have changes in Columbus's temperatures over timem compared to changes in the global average?  
+  - What does the overall temperature trend look like? Has the trend been consistent over the last few hundred years?
+  - Are the temperature averages generally correlated, and what does that relationship look like?  
+
+## Methods 
+
+The following section describes the steps taken to extract and wrangle the local and global temperature data.   
+
+### Data Extraction 
+
+The following SQL queries were used to extract the data from the database provided:  
+  
+City-level Data:  
+
+    SELECT * 
+    FROM city_data
+    WHERE country = 'United States'
+      AND city = 'Columbus';  
+
+  
+Global Data:  
+
+    SELECT *
+    FROM global_data;  
+
+  
+  The results of the above queries were exported to CSVs.
+
+### Data Wrangling
+   
+  First, the query-export CSVs were imported into RStudio. The year columns were then typecast into the Date type, and the annual average temperature columns were converted to a numeric type. Because a simple way to prepare data for plotting comparisons is to join the two data sets together, the city-level data was assigned a group variable where each value is 'Columbus', and the global data was assigned a group variable with value 'Global'. The moving averages for each set were calculated as follows using the *zoo* library:  
+    
+    cbus_data_full <- cbus_data %>%
+    mutate(`5-Year MA` = zoo::rollmean(avg_temp, k = 5, fill = NA, align = 'right'),
+         `10-Year MA` =  zoo::rollmean(avg_temp, k = 10, fill = NA, align = 'right'),     
+         `50-Year MA` = zoo::rollmean(avg_temp, k = 50, fill = NA, align = 'right')
+       )
+
+    global_data_full <- global_temps %>%
+    mutate(`5-Year MA` = zoo::rollmean(avg_temp, k = 5, fill = NA, align = 'right'),
+         `10-Year MA` =  zoo::rollmean(avg_temp, k = 10, fill = NA, align = 'right'),     
+         `50-Year MA` = zoo::rollmean(avg_temp, k = 50, fill = NA, align = 'right')
+    )
+    
+For exploratory purposes, 5, 10, and 50 year moving averages were calculated. This method was verfied against the example dataset provided in the course. Finally, the two datasets were combined into one set using *dplyr::bind_rows*. Ultimagely, the 10-year moving average was selected for visualization; the 5-year moving average provided such a detailed view that the overall trends were difficult to assess, and the 50-year moving average cast such a wide aggregation that the subtle changes between decades were lost.  
+
+## Observations
+
+```{r corr-test, include=FALSE}
+
+cor_data <- cbus_data_full %>% select(year, `10-Year MA`) %>%
+   rename(col_10yma = `10-Year MA`) %>%
+  left_join(global_data_full %>% select(year, `10-Year MA`), by = 'year') %>%
+  rename(glob_10yma = `10-Year MA`) %>%
+  filter(year >= 1759) %>%
+  mutate(col_10yma = replace_na(col_10yma, median(col_10yma, na.rm=T)))
+
+cor.test(cor_data$col_10yma, cor_data$glob_10yma)
+
+#t.test(cor_data$col_10yma, cor_data$glob_10yma, paired = TRUE)
+
+```
+
+  
+
+  
+  1.  *Columbus historically has been hotter than the global average.*  According to the figure below, Columbus is consistently 5-6 degrees warmer than the global average (according to 10-year global averages).  
+  2. *Changes in average temperature year-over-year in Columbus tend to align with changes to global temperature.* For example, the dip in average global temperature between 1800-1820 is also reflected in the average Columbus temperatures.   
+  3. *Similar to the global average temperature since ~1800, Columbus has been steadily increasing in average temperature year over year.*  The world has been getting consistently warmer overall since about 1820, as seen in the plot below. While the Columbus average temperatures tend to vary year over year more than the global averages (Columbus shows more gains/losses in average temps when looking at small windows of time), but the overall trend shows a similar steady increase since about 1800.
+  4. *Columbus 10-year moving average temperatures are statistically correlated with the 10-year moving average global temperatures.* The Columbus and global average temperatures have a correlation coefficient of 0.78, indicating that the temperatures are both positively and strongly related.
+  
+  
+```{r line-chart, include=TRUE, fig.width=8, fig.height=4}
+
+combined %>% 
+  ggplot(aes(x=year, y=`10-Year MA`, color = group)) +
+  #geom_point() +
+  geom_line() +
+  theme_bw() + 
+  scale_x_continuous(breaks = seq(1700, 2200, 20), minor_breaks = seq(1700, 2200, 10), limits = c(1790,2020)) +
+  scale_y_continuous(breaks = seq(0,20,2), minor_breaks = seq(0,20,.5)) +
+  theme(plot.title = element_text(hjust = 0.5), axis.text.x = element_text(hjust=0.5)) + 
+  labs(x = 'Year', y = '10-Year Moving Average Temp', color = 'Local vs Global', title = 'Global vs Columbus, OH Temperatures by Year')
+
+```
+
+
+
+
+
+```{r temp_diff, include=FALSE, fig.width=8, fig.height=4}
+differences %>% 
+  ggplot(aes(x=year, y=`MA_temp_diff`)) +
+  #geom_point() +
+  geom_line() +
+  theme_bw() + 
+  scale_x_continuous(breaks = seq(1700, 2200, 20), minor_breaks = seq(1700, 2200, 10), limits = c(1790,2015)) +
+  scale_y_continuous(breaks = seq(0,15,1), minor_breaks = seq(0,15,.5)) +
+  theme(plot.title = element_text(hjust = 0.5), axis.text.x = element_text(hjust=0.5)) + 
+  labs(x = 'Year', y = 'Difference in 10-Year Moving Average Temp', title = 'Global vs Columbus, OH Temperature Differences by Year')
+```
+
+
+
+
+
+
+```{r cleanup}
+
+# Reset to old working directory after script runs
+setwd(oldwd)
+
+```
+
+
+
+```{r YAML-constants}
+TITLE <- 'Exploring Weather Trends : Columbus, OH'
+CREATOR <- 'Amber Simmons, PhD'
+CURRENT_DATE <- Sys.Date()
+HEADER_IMG_LOC <- 'src/cbus_skyline.jpg'
+```
+
+---
+author: '`r paste0('Author: ', CREATOR)`'
+date: '`r paste0('Date: ',CURRENT_DATE)`'
+title: |
+  ![](`r HEADER_IMG_LOC`){padding=80px}  <br><br>`r TITLE` <br> 
+---
+
+
+
